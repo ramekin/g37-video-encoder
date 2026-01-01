@@ -13,8 +13,25 @@ Encode videos for playback on the 2012 Infiniti G37x with Navigation system.
 
 - Python 3.10+
 - FFmpeg with libmp3lame support
+- [uv](https://docs.astral.sh/uv/) (recommended) or pip
 
 ## Installation
+
+### Using uv (recommended)
+
+Run directly without installing:
+
+```bash
+uvx --from git+https://github.com/owner/g37-video-encoder g37-encode video.mkv output.avi
+```
+
+Or install locally for development:
+
+```bash
+uv pip install -e .
+```
+
+### Using pip
 
 ```bash
 pip install -e .
