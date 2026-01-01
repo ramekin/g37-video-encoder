@@ -1,0 +1,164 @@
+"""Command-line interface for G37x video encoder."""
+
+import argparse
+import sys
+from pathlib import Path
+
+from . import __version__
+from .encoder import EncodingConfig, encode_video, DEFAULT_VIDEO_BITRATE_KBPS, DEFAULT_AUDIO_BITRATE_KBPS
+from .splitter import split_encoded_file, MAX_FILE_SIZE_BYTES
+
+
+def main():
+    """Main entry point for the CLI."""
+    parser = argparse.ArgumentParser(
+        prog="g37-encode",
+        description="Encode videos for 2012 Infiniti G37x with Navigation",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  Encode a video:
+    g37-encode video.mkv output.avi
+
+  Encode with custom bitrate:
+    g37-encode video.mkv output.avi --video-bitrate 3000
+
+  Split an already-encoded file:
+    g37-encode --split encoded.avi
+
+  Split using chapters from source:
+    g37-encode --split encoded.avi --source-chapters movie.mkv
+
+Output format:
+  - Video: MPEG4 (DivX/DX50 compatible), 720x480, 24fps
+  - Audio: MP3, 320kbps, 48kHz stereo
+  - Container: AVI
+  - Files automatically split if they would exceed 1900MB
+"""
+    )
+
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+
+    # Mode selection
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--split", "-s",
+        action="store_true",
+        help="Split an already-encoded file instead of encoding"
+    )
+
+    # Input/output files
+    parser.add_argument(
+        "input",
+        type=Path,
+        help="Input video file (or encoded file when using --split)"
+    )
+    parser.add_argument(
+        "output",
+        type=Path,
+        nargs="?",
+        help="Output file path (not used with --split)"
+    )
+
+    # Encoding options
+    encode_group = parser.add_argument_group("encoding options")
+    encode_group.add_argument(
+        "--video-bitrate", "-vb",
+        type=int,
+        default=DEFAULT_VIDEO_BITRATE_KBPS,
+        metavar="KBPS",
+        help=f"Video bitrate in kbps (default: {DEFAULT_VIDEO_BITRATE_KBPS})"
+    )
+    encode_group.add_argument(
+        "--audio-bitrate", "-ab",
+        type=int,
+        default=DEFAULT_AUDIO_BITRATE_KBPS,
+        metavar="KBPS",
+        help=f"Audio bitrate in kbps (default: {DEFAULT_AUDIO_BITRATE_KBPS})"
+    )
+    encode_group.add_argument(
+        "--max-size", "-m",
+        type=int,
+        default=1900,
+        metavar="MB",
+        help="Maximum file size in MB (default: 1900)"
+    )
+
+    # Split options
+    split_group = parser.add_argument_group("split options")
+    split_group.add_argument(
+        "--source-chapters", "-c",
+        type=Path,
+        metavar="FILE",
+        help="Source file with chapters (for chapter-aware splitting)"
+    )
+
+    # General options
+    parser.add_argument(
+        "--quiet", "-q",
+        action="store_true",
+        help="Suppress progress output"
+    )
+
+    args = parser.parse_args()
+
+    # Validate arguments
+    if args.split:
+        # Split mode
+        return cmd_split(args)
+    else:
+        # Encode mode
+        if not args.output:
+            parser.error("output file is required when encoding")
+        return cmd_encode(args)
+
+
+def cmd_encode(args) -> int:
+    """Handle encode command."""
+    config = EncodingConfig(
+        video_bitrate_kbps=args.video_bitrate,
+        audio_bitrate_kbps=args.audio_bitrate,
+        max_file_size_mb=args.max_size,
+    )
+
+    try:
+        encode_video(
+            input_file=args.input,
+            output_file=args.output,
+            config=config,
+            verbose=not args.quiet,
+        )
+        return 0
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"Error during encoding: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_split(args) -> int:
+    """Handle split command."""
+    max_bytes = args.max_size * 1024 * 1024
+
+    try:
+        split_encoded_file(
+            encoded_file=args.input,
+            source_file=args.source_chapters,
+            max_size_bytes=max_bytes,
+            verbose=not args.quiet,
+        )
+        return 0
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"Error during splitting: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
