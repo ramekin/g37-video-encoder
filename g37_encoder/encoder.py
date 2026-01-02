@@ -44,6 +44,12 @@ def build_ffmpeg_command(
     """Build ffmpeg command for G37x compatible encoding."""
     cmd = ["ffmpeg", "-loglevel", "error", "-stats", "-i", str(input_file)]
 
+    # Stream mapping: select first video and English audio
+    cmd.extend([
+        "-map", "0:v:0",              # First video stream
+        "-map", "0:a:m:language:eng", # English audio stream
+    ])
+
     # Time range options
     if start_time is not None:
         cmd.extend(["-ss", str(start_time)])
