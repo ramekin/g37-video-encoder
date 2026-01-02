@@ -55,6 +55,10 @@ def build_ffmpeg_command(
         "-s", f"{config.width}x{config.height}",
         "-r", str(config.framerate),
         "-b:v", f"{config.video_bitrate_kbps}k",
+        # Enforce target bitrate (mpeg4 encoder tends to undershoot with VBR)
+        "-minrate", f"{config.video_bitrate_kbps}k",
+        "-maxrate", f"{config.video_bitrate_kbps}k",
+        "-bufsize", f"{config.video_bitrate_kbps}k",
     ])
 
     # Audio encoding options (MP3)
