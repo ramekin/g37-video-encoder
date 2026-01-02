@@ -11,6 +11,7 @@ from .utils import (
     estimate_output_size_mb,
     find_chapter_split_points,
 )
+from .splitter import split_encoded_file
 
 
 # G37x compatible encoding settings
@@ -30,6 +31,7 @@ class EncodingConfig:
     audio_channels: int = 2
     audio_sample_rate: int = 48000
     max_file_size_mb: int = MAX_FILE_SIZE_MB
+    cbr: bool = False  # Use constant bitrate (forces target bitrate)
 
 
 def build_ffmpeg_command(
@@ -55,11 +57,15 @@ def build_ffmpeg_command(
         "-s", f"{config.width}x{config.height}",
         "-r", str(config.framerate),
         "-b:v", f"{config.video_bitrate_kbps}k",
-        # Enforce target bitrate (mpeg4 encoder tends to undershoot with VBR)
-        "-minrate", f"{config.video_bitrate_kbps}k",
-        "-maxrate", f"{config.video_bitrate_kbps}k",
-        "-bufsize", f"{config.video_bitrate_kbps}k",
     ])
+
+    # CBR mode: enforce target bitrate strictly
+    if config.cbr:
+        cmd.extend([
+            "-minrate", f"{config.video_bitrate_kbps}k",
+            "-maxrate", f"{config.video_bitrate_kbps}k",
+            "-bufsize", f"{config.video_bitrate_kbps}k",
+        ])
 
     # Audio encoding options (MP3)
     cmd.extend([
@@ -94,8 +100,8 @@ def encode_video(
     """
     Encode a video file for G37x compatibility.
 
-    Automatically splits output if it would exceed the max file size,
-    preferring chapter boundaries for split points.
+    With CBR mode: estimates size upfront and splits during encoding.
+    With VBR mode (default): encodes whole file, then splits if needed.
 
     Returns list of output file paths.
     """
@@ -117,8 +123,27 @@ def encode_video(
         print(f"Duration: {duration:.1f}s ({duration/60:.1f} min)")
         print(f"Video bitrate: {config.video_bitrate_kbps}k")
         print(f"Audio bitrate: {config.audio_bitrate_kbps}k")
+        print(f"Mode: {'CBR' if config.cbr else 'VBR'}")
 
-    # Calculate number of parts needed
+    if config.cbr:
+        # CBR mode: estimate size and pre-split during encoding
+        return _encode_cbr(input_file, output_file, config, media_info, verbose)
+    else:
+        # VBR mode: encode whole file, then split if needed
+        return _encode_vbr(input_file, output_file, config, media_info, verbose)
+
+
+def _encode_cbr(
+    input_file: Path,
+    output_file: Path,
+    config: EncodingConfig,
+    media_info,
+    verbose: bool,
+) -> list[Path]:
+    """Encode with CBR, pre-splitting based on estimated size."""
+    duration = media_info.duration
+
+    # Calculate number of parts needed based on estimated size
     num_parts = calculate_num_parts(duration, config)
     estimated_total = estimate_output_size_mb(
         duration,
@@ -141,7 +166,7 @@ def encode_video(
         _run_ffmpeg(cmd, verbose)
         output_files.append(output_file)
     else:
-        # Multi-part output
+        # Multi-part output - split during encoding
         split_points = find_chapter_split_points(
             media_info.chapters,
             duration,
@@ -153,11 +178,9 @@ def encode_video(
                 print(f"Found {len(media_info.chapters)} chapters")
             print(f"Split points: {[f'{t:.1f}s' for t in split_points]}")
 
-        # Generate output filenames
         base = output_file.stem
         ext = output_file.suffix
 
-        # Encode each segment
         segments = _create_segments(duration, split_points)
         for i, (start, end) in enumerate(segments, 1):
             part_file = output_file.parent / f"{base}_part{i}{ext}"
@@ -181,6 +204,61 @@ def encode_video(
             print(f"  {f} ({size_mb:.0f}MB)")
 
     return output_files
+
+
+def _encode_vbr(
+    input_file: Path,
+    output_file: Path,
+    config: EncodingConfig,
+    media_info,
+    verbose: bool,
+) -> list[Path]:
+    """Encode with VBR, splitting after if file exceeds size limit."""
+    # Encode the whole file first
+    if verbose:
+        print(f"\n=== Encoding ===")
+    cmd = build_ffmpeg_command(input_file, output_file, config)
+    _run_ffmpeg(cmd, verbose)
+
+    # Check actual file size
+    actual_size_bytes = output_file.stat().st_size
+    actual_size_mb = actual_size_bytes / (1024 * 1024)
+    max_size_bytes = config.max_file_size_mb * 1024 * 1024
+
+    if verbose:
+        print(f"\nEncoded file size: {actual_size_mb:.0f}MB")
+
+    if actual_size_bytes <= max_size_bytes:
+        # File is under limit, we're done
+        if verbose:
+            print(f"\nConversion complete:")
+            print(f"  {output_file} ({actual_size_mb:.0f}MB)")
+        return [output_file]
+
+    # File exceeds limit - need to split
+    if verbose:
+        print(f"File exceeds {config.max_file_size_mb}MB limit, splitting...")
+
+    # Use the splitter with chapter info from the original source
+    split_files = split_encoded_file(
+        encoded_file=output_file,
+        source_file=input_file,  # Use source for chapter info
+        max_size_bytes=max_size_bytes,
+        verbose=verbose,
+    )
+
+    # Delete the original large file
+    if verbose:
+        print(f"\nRemoving original file: {output_file}")
+    output_file.unlink()
+
+    if verbose:
+        print(f"\nConversion complete:")
+        for f in split_files:
+            size_mb = f.stat().st_size / (1024 * 1024)
+            print(f"  {f} ({size_mb:.0f}MB)")
+
+    return split_files
 
 
 def _create_segments(duration: float, split_points: list[float]) -> list[tuple[float, float]]:

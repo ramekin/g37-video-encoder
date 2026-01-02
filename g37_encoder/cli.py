@@ -33,7 +33,13 @@ Output format:
   - Video: MPEG4 (DivX/DX50 compatible), 720x480, 24fps
   - Audio: MP3, 320kbps, 48kHz stereo
   - Container: AVI
-  - Files automatically split if they would exceed 1900MB
+  - Files automatically split if they exceed 1900MB
+
+Encoding modes:
+  - VBR (default): Encodes whole file, then splits if needed. Lets encoder
+    decide optimal bitrate - often produces smaller files at same quality.
+  - CBR (--cbr): Forces target bitrate, pre-splits during encoding based on
+    estimated size. Use for testing hardware bitrate limits.
 """
     )
 
@@ -83,6 +89,11 @@ Output format:
         metavar="MB",
         help="Maximum file size in MB (default: 1900)"
     )
+    encode_group.add_argument(
+        "--cbr",
+        action="store_true",
+        help="Use constant bitrate (forces target bitrate, pre-splits during encoding)"
+    )
 
     # Split options
     split_group = parser.add_argument_group("split options")
@@ -119,6 +130,7 @@ def cmd_encode(args) -> int:
         video_bitrate_kbps=args.video_bitrate,
         audio_bitrate_kbps=args.audio_bitrate,
         max_file_size_mb=args.max_size,
+        cbr=args.cbr,
     )
 
     try:
