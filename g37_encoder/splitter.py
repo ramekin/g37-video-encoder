@@ -114,7 +114,7 @@ def split_encoded_file(
             print(f"\n=== Splitting Part {i}/{len(segments)} ===")
             print(f"  Time range: {start:.1f}s - {end:.1f}s")
 
-        cmd = ["ffmpeg", "-loglevel", "error", "-i", str(encoded_file)]
+        cmd = ["ffmpeg", "-loglevel", "error", "-stats", "-i", str(encoded_file)]
 
         if start > 0:
             cmd.extend(["-ss", str(start)])

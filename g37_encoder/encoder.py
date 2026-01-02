@@ -42,7 +42,7 @@ def build_ffmpeg_command(
     end_time: float | None = None,
 ) -> list[str]:
     """Build ffmpeg command for G37x compatible encoding."""
-    cmd = ["ffmpeg", "-loglevel", "error", "-i", str(input_file)]
+    cmd = ["ffmpeg", "-loglevel", "error", "-stats", "-i", str(input_file)]
 
     # Time range options
     if start_time is not None:
