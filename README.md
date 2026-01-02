@@ -31,10 +31,10 @@ Or run directly without installing:
 uvx --from git+https://github.com/owner/g37-video-encoder g37-encode video.mkv output.avi
 ```
 
-For local development:
+For local development (from repo directory):
 
 ```bash
-uv pip install -e .
+uv run g37-encode video.mkv output.avi
 ```
 
 ### Using pip
