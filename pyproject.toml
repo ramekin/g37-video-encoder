@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
-    {name = "G37 Owner"}
+    {name = "Chris Rasmussen"}
 ]
 keywords = ["video", "encoder", "g37", "infiniti", "ffmpeg"]
 classifiers = [
@@ -30,7 +30,7 @@ classifiers = [
 g37-encode = "g37_encoder.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/owner/g37-video-encoder"
+Homepage = "https://github.com/ramekin/g37-video-encoder"
 
 [tool.setuptools.packages.find]
 where = ["."]

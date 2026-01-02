@@ -22,13 +22,13 @@ Encode videos for playback on the 2012 Infiniti G37x with Navigation system.
 Install globally (adds `g37-encode` to PATH):
 
 ```bash
-uv tool install git+https://github.com/owner/g37-video-encoder
+uv tool install git+https://github.com/ramekin/g37-video-encoder
 ```
 
 Or run directly without installing:
 
 ```bash
-uvx --from git+https://github.com/owner/g37-video-encoder g37-encode video.mkv output.avi
+uvx --from git+https://github.com/ramekin/g37-video-encoder g37-encode video.mkv output.avi
 ```
 
 For local development (from repo directory):
