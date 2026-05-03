@@ -92,6 +92,12 @@ Split modes:
         help=f"Audio bitrate in kbps (default: {DEFAULT_AUDIO_BITRATE_KBPS})"
     )
     encode_group.add_argument(
+        "--audio-lang",
+        default="eng",
+        metavar="LANG",
+        help="ISO 639-2 audio language code (default: eng). Examples: eng, spa, fra, deu, jpn"
+    )
+    encode_group.add_argument(
         "--max-size", "-m",
         type=int,
         default=1900,
@@ -147,6 +153,7 @@ def cmd_encode(args) -> int:
         max_file_size_mb=args.max_size,
         cbr=args.cbr,
         split_mode=args.split_mode,
+        audio_language=args.audio_lang,
     )
 
     try:
