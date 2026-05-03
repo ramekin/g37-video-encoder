@@ -211,7 +211,7 @@ def _encode_segments(
 
     segments = _create_segments(duration, split_points)
     for i, (start, end) in enumerate(segments, 1):
-        part_file = output_file.parent / f"{base}_part{i}{ext}"
+        part_file = output_file.parent / f"{base}_part{i:03d}{ext}"
         output_files.append(part_file)
 
         if verbose:
