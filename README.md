@@ -6,7 +6,9 @@ Encode videos for playback on the 2012 Infiniti G37x with Navigation system.
 
 - Encodes videos to G37x-compatible format (MPEG4/DivX in AVI container)
 - Automatically splits large files to stay under the 2GB FAT32 limit
-- Prefers chapter boundaries for split points when available
+- Three split modes: auto (size + chapter alignment), chapter (one per chapter), size (even)
+- VBR (default) or CBR encoding modes
+- Selects English audio track automatically
 - Can split already-encoded files without re-encoding
 
 ## Requirements
@@ -73,6 +75,33 @@ For chapter-aware splitting of pre-encoded files:
 g37-encode --split encoded.avi --source-chapters original.mkv
 ```
 
+### Split into one file per chapter
+
+```bash
+g37-encode video.mkv output.avi --split-mode chapter
+```
+
+Or for a pre-encoded file:
+
+```bash
+g37-encode --split encoded.avi --source-chapters original.mkv --split-mode chapter
+```
+
+## Split Modes
+
+| Mode | Behavior |
+|------|----------|
+| `auto` (default) | Split by file size, snap to nearest chapter boundary |
+| `chapter` | One file per chapter (always splits, ignores size limit) |
+| `size` | Split evenly by file size, ignore chapters |
+
+## Encoding Modes
+
+| Mode | Behavior |
+|------|----------|
+| VBR (default) | Encode whole file, split after if over size limit |
+| CBR (`--cbr`) | Force target bitrate, pre-split during encoding |
+
 ## Output Format
 
 The encoder produces files with these specifications:
@@ -92,33 +121,7 @@ The encoder produces files with these specifications:
 
 ## Command Reference
 
-```
-usage: g37-encode [-h] [--version] [--split] [--video-bitrate KBPS]
-                  [--audio-bitrate KBPS] [--max-size MB]
-                  [--source-chapters FILE] [--quiet]
-                  input [output]
-
-positional arguments:
-  input                 Input video file (or encoded file when using --split)
-  output                Output file path (not used with --split)
-
-options:
-  -h, --help            show this help message and exit
-  --version             show program's version number and exit
-  --split, -s           Split an already-encoded file instead of encoding
-  --quiet, -q           Suppress progress output
-
-encoding options:
-  --video-bitrate KBPS, -vb KBPS
-                        Video bitrate in kbps (default: 2500)
-  --audio-bitrate KBPS, -ab KBPS
-                        Audio bitrate in kbps (default: 320)
-  --max-size MB, -m MB  Maximum file size in MB (default: 1900)
-
-split options:
-  --source-chapters FILE, -c FILE
-                        Source file with chapters (for chapter-aware splitting)
-```
+Run `g37-encode --help` for the full list of options.
 
 ## License
 

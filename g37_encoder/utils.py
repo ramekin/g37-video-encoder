@@ -6,6 +6,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+# Split modes
+SPLIT_MODE_CHAPTER = "chapter"  # One file per chapter
+SPLIT_MODE_SIZE = "size"        # Split evenly by size (ignore chapters)
+SPLIT_MODE_AUTO = "auto"        # Split by size, prefer chapter boundaries
+SPLIT_MODES = (SPLIT_MODE_CHAPTER, SPLIT_MODE_SIZE, SPLIT_MODE_AUTO)
+
+
 @dataclass
 class Chapter:
     """Represents a video chapter."""
@@ -123,6 +130,41 @@ def find_chapter_split_points(chapters: list[Chapter], duration: float, num_part
         return [duration * i / num_parts for i in range(1, num_parts)]
 
     return split_points[:num_parts - 1]
+
+
+def compute_split_points(
+    chapters: list[Chapter],
+    duration: float,
+    num_parts: int,
+    split_mode: str = SPLIT_MODE_AUTO,
+) -> list[float]:
+    """
+    Compute split points based on the split mode.
+
+    Modes:
+    - "chapter": One split per chapter boundary (num_parts is ignored)
+    - "size": Split evenly by time, ignoring chapters
+    - "auto": Split into num_parts parts, preferring chapter boundaries
+
+    Raises ValueError if split_mode is "chapter" but no chapters exist.
+    """
+    if split_mode not in SPLIT_MODES:
+        raise ValueError(f"Invalid split_mode: {split_mode}. Must be one of {SPLIT_MODES}")
+
+    if split_mode == SPLIT_MODE_CHAPTER:
+        if not chapters:
+            raise ValueError("Cannot split by chapter: no chapters found in source")
+        # One split point per chapter boundary (skip start at 0)
+        return [ch.start_time for ch in chapters if ch.start_time > 0]
+
+    if num_parts <= 1:
+        return []
+
+    if split_mode == SPLIT_MODE_SIZE:
+        return [duration * i / num_parts for i in range(1, num_parts)]
+
+    # SPLIT_MODE_AUTO
+    return find_chapter_split_points(chapters, duration, num_parts)
 
 
 def estimate_output_size_mb(duration_seconds: float, video_kbps: int, audio_kbps: int) -> float:

@@ -5,7 +5,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from .utils import get_media_info, find_chapter_split_points
+from .utils import (
+    get_media_info,
+    compute_split_points,
+    SPLIT_MODE_AUTO,
+    SPLIT_MODE_CHAPTER,
+    SPLIT_MODE_SIZE,
+)
 
 
 MAX_FILE_SIZE_BYTES = 1900 * 1024 * 1024  # 1900MB, margin under 2GB
@@ -26,17 +32,24 @@ def split_encoded_file(
     encoded_file: Path,
     source_file: Path | None = None,
     max_size_bytes: int = MAX_FILE_SIZE_BYTES,
+    split_mode: str = SPLIT_MODE_AUTO,
     verbose: bool = True,
 ) -> list[Path]:
     """
-    Split an already-encoded video file into parts under the size limit.
+    Split an already-encoded video file into parts.
 
     Uses stream copy (no re-encoding) for fast splitting.
 
+    Modes:
+    - "chapter": One file per chapter (always splits, ignores size limit)
+    - "size": Split evenly by size (only if over limit, ignores chapters)
+    - "auto": Split by size, prefer chapter boundaries (only if over limit)
+
     Args:
         encoded_file: The encoded video file to split
-        source_file: Optional source file with chapters (for chapter-aware splitting)
-        max_size_bytes: Maximum size per output file in bytes
+        source_file: Optional source file with chapters (required for chapter mode)
+        max_size_bytes: Maximum size per output file in bytes (size/auto modes)
+        split_mode: How to determine split points
         verbose: Print progress information
 
     Returns:
@@ -50,6 +63,7 @@ def split_encoded_file(
     encoded_info = get_media_info(encoded_file)
     duration = encoded_info.duration
     bitrate = encoded_info.bitrate
+    file_size_bytes = encoded_file.stat().st_size
 
     if bitrate <= 0:
         raise ValueError(f"Could not determine bitrate of {encoded_file}")
@@ -58,56 +72,75 @@ def split_encoded_file(
         print(f"Encoded file: {encoded_file}")
         print(f"Duration: {duration:.1f}s ({duration/60:.1f} min)")
         print(f"Bitrate: {bitrate / 1000:.0f} kbps")
-        file_size_mb = encoded_file.stat().st_size / (1024 * 1024)
-        print(f"File size: {file_size_mb:.0f}MB")
+        print(f"File size: {file_size_bytes / (1024 * 1024):.0f}MB")
+        print(f"Split mode: {split_mode}")
 
-    # Check if splitting is needed
-    if encoded_file.stat().st_size <= max_size_bytes:
+    # Get chapters from source or encoded file
+    chapters = _get_chapters(source_file, encoded_info, verbose)
+
+    # Determine split points based on mode
+    if split_mode == SPLIT_MODE_CHAPTER:
+        split_points = compute_split_points(chapters, duration, 0, SPLIT_MODE_CHAPTER)
         if verbose:
-            print("File is already under size limit, no splitting needed.")
-        return [encoded_file]
+            print(f"Splitting into {len(split_points) + 1} chapters")
+    else:
+        # size or auto: only split if over limit
+        if file_size_bytes <= max_size_bytes:
+            if verbose:
+                print("File is already under size limit, no splitting needed.")
+            return [encoded_file]
 
-    # Calculate number of parts needed
-    num_parts = calculate_parts_needed(duration, bitrate, max_size_bytes)
+        num_parts = calculate_parts_needed(duration, bitrate, max_size_bytes)
+        if verbose:
+            max_mb = max_size_bytes / (1024 * 1024)
+            print(f"Need to split into {num_parts} parts (max {max_mb:.0f}MB each)")
 
-    if verbose:
-        max_mb = max_size_bytes / (1024 * 1024)
-        print(f"Need to split into {num_parts} parts (max {max_mb:.0f}MB each)")
-
-    # Get chapters from source file if provided
-    chapters = []
-    if source_file:
-        source_file = Path(source_file)
-        if source_file.exists():
-            source_info = get_media_info(source_file)
-            chapters = source_info.chapters
-            if verbose and chapters:
-                print(f"Found {len(chapters)} chapters in source file")
-
-    # Determine split points
-    split_points = find_chapter_split_points(chapters, duration, num_parts)
+        split_points = compute_split_points(chapters, duration, num_parts, split_mode)
 
     if verbose:
         print(f"Split points: {[f'{t:.1f}s' for t in split_points]}")
-        if chapters:
+        if chapters and split_mode != SPLIT_MODE_SIZE:
             for point in split_points:
-                # Find matching chapter
                 for ch in chapters:
                     if abs(ch.start_time - point) < 0.1:
                         print(f"  {point:.1f}s = Chapter: {ch.title}")
                         break
 
-    # Generate output filenames
+    return _split_file(encoded_file, duration, split_points, verbose)
+
+
+def _get_chapters(source_file: Path | None, encoded_info, verbose: bool) -> list:
+    """Get chapters from source file or fall back to encoded file."""
+    if source_file:
+        source_file = Path(source_file)
+        if source_file.exists():
+            source_info = get_media_info(source_file)
+            if source_info.chapters:
+                if verbose:
+                    print(f"Found {len(source_info.chapters)} chapters in source file")
+                return source_info.chapters
+
+    if encoded_info.chapters and verbose:
+        print(f"Found {len(encoded_info.chapters)} chapters in encoded file")
+    return encoded_info.chapters
+
+
+def _split_file(
+    encoded_file: Path,
+    duration: float,
+    split_points: list[float],
+    verbose: bool,
+) -> list[Path]:
+    """Split file at given split points using stream copy."""
     base = encoded_file.stem
     ext = encoded_file.suffix
     output_dir = encoded_file.parent
 
-    # Split the file
     output_files = []
     segments = _create_segments(duration, split_points)
 
     for i, (start, end) in enumerate(segments, 1):
-        part_file = output_dir / f"{base}_part{i}{ext}"
+        part_file = output_dir / f"{base}_part{i:03d}{ext}"
         output_files.append(part_file)
 
         if verbose:
