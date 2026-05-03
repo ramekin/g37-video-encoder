@@ -95,7 +95,7 @@ Split modes:
         "--audio-lang",
         default="eng",
         metavar="LANG",
-        help="ISO 639-2 audio language code (default: eng). Examples: eng, spa, fra, deu, jpn"
+        help="ISO 639-2 audio language code (default: eng). Examples: eng, spa, fra, deu, jpn. Full list: https://www.loc.gov/standards/iso639-2/php/code_list.php"
     )
     encode_group.add_argument(
         "--max-size", "-m",
