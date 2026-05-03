@@ -7,6 +7,7 @@ from pathlib import Path
 from . import __version__
 from .encoder import EncodingConfig, encode_video, DEFAULT_VIDEO_BITRATE_KBPS, DEFAULT_AUDIO_BITRATE_KBPS
 from .splitter import split_encoded_file, MAX_FILE_SIZE_BYTES
+from .utils import SPLIT_MODES, SPLIT_MODE_AUTO
 
 
 def main():
@@ -29,6 +30,9 @@ Examples:
   Split using chapters from source:
     g37-encode --split encoded.avi --source-chapters movie.mkv
 
+  Split into one file per chapter:
+    g37-encode video.mkv output.avi --split-mode chapter
+
 Output format:
   - Video: MPEG4 (DivX/DX50 compatible), 720x480, 24fps
   - Audio: MP3, 320kbps, 48kHz stereo
@@ -40,6 +44,11 @@ Encoding modes:
     decide optimal bitrate - often produces smaller files at same quality.
   - CBR (--cbr): Forces target bitrate, pre-splits during encoding based on
     estimated size. Use for testing hardware bitrate limits.
+
+Split modes:
+  - auto (default): Split by file size, prefer chapter boundaries when possible.
+  - chapter: One file per chapter (always splits, ignores size limit).
+  - size: Split evenly by file size, ignore chapter boundaries.
 """
     )
 
@@ -98,10 +107,16 @@ Encoding modes:
     # Split options
     split_group = parser.add_argument_group("split options")
     split_group.add_argument(
+        "--split-mode",
+        choices=SPLIT_MODES,
+        default=SPLIT_MODE_AUTO,
+        help=f"How to split: chapter (per chapter), size (even), auto (size + chapter boundary). Default: {SPLIT_MODE_AUTO}"
+    )
+    split_group.add_argument(
         "--source-chapters", "-c",
         type=Path,
         metavar="FILE",
-        help="Source file with chapters (for chapter-aware splitting)"
+        help="Source file with chapters (for chapter-aware splitting in --split mode)"
     )
 
     # General options
@@ -131,6 +146,7 @@ def cmd_encode(args) -> int:
         audio_bitrate_kbps=args.audio_bitrate,
         max_file_size_mb=args.max_size,
         cbr=args.cbr,
+        split_mode=args.split_mode,
     )
 
     try:
@@ -158,6 +174,7 @@ def cmd_split(args) -> int:
             encoded_file=args.input,
             source_file=args.source_chapters,
             max_size_bytes=max_bytes,
+            split_mode=args.split_mode,
             verbose=not args.quiet,
         )
         return 0

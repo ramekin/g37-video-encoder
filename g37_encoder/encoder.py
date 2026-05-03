@@ -9,7 +9,10 @@ from pathlib import Path
 from .utils import (
     get_media_info,
     estimate_output_size_mb,
-    find_chapter_split_points,
+    compute_split_points,
+    SPLIT_MODE_AUTO,
+    SPLIT_MODE_CHAPTER,
+    SPLIT_MODE_SIZE,
 )
 from .splitter import split_encoded_file
 
@@ -32,6 +35,7 @@ class EncodingConfig:
     audio_sample_rate: int = 48000
     max_file_size_mb: int = MAX_FILE_SIZE_MB
     cbr: bool = False  # Use constant bitrate (forces target bitrate)
+    split_mode: str = SPLIT_MODE_AUTO  # chapter, size, or auto
 
 
 def build_ffmpeg_command(
@@ -146,11 +150,8 @@ def _encode_cbr(
     media_info,
     verbose: bool,
 ) -> list[Path]:
-    """Encode with CBR, pre-splitting based on estimated size."""
+    """Encode with CBR, pre-splitting based on split mode."""
     duration = media_info.duration
-
-    # Calculate number of parts needed based on estimated size
-    num_parts = calculate_num_parts(duration, config)
     estimated_total = estimate_output_size_mb(
         duration,
         config.video_bitrate_kbps,
@@ -159,57 +160,83 @@ def _encode_cbr(
 
     if verbose:
         print(f"Estimated total size: {estimated_total:.0f}MB")
-        if num_parts > 1:
+        print(f"Split mode: {config.split_mode}")
+
+    if config.split_mode == SPLIT_MODE_CHAPTER:
+        # Always split by chapter
+        split_points = compute_split_points(
+            media_info.chapters, duration, 0, SPLIT_MODE_CHAPTER
+        )
+        if verbose:
+            print(f"Splitting into {len(split_points) + 1} chapters")
+    else:
+        # size or auto: determine parts based on estimated size
+        num_parts = calculate_num_parts(duration, config)
+        if num_parts == 1:
+            # Single file - no splitting needed
+            if verbose:
+                print(f"\n=== Encoding ===")
+            cmd = build_ffmpeg_command(input_file, output_file, config)
+            _run_ffmpeg(cmd, verbose)
+            _print_completion([output_file], verbose)
+            return [output_file]
+
+        if verbose:
             print(f"Will split into {num_parts} parts (max {config.max_file_size_mb}MB each)")
 
-    output_files = []
-
-    if num_parts == 1:
-        # Single file output
-        if verbose:
-            print(f"\n=== Encoding ===")
-        cmd = build_ffmpeg_command(input_file, output_file, config)
-        _run_ffmpeg(cmd, verbose)
-        output_files.append(output_file)
-    else:
-        # Multi-part output - split during encoding
-        split_points = find_chapter_split_points(
-            media_info.chapters,
-            duration,
-            num_parts
+        split_points = compute_split_points(
+            media_info.chapters, duration, num_parts, config.split_mode
         )
 
-        if verbose:
-            if media_info.chapters:
-                print(f"Found {len(media_info.chapters)} chapters")
-            print(f"Split points: {[f'{t:.1f}s' for t in split_points]}")
-
-        base = output_file.stem
-        ext = output_file.suffix
-
-        segments = _create_segments(duration, split_points)
-        for i, (start, end) in enumerate(segments, 1):
-            part_file = output_file.parent / f"{base}_part{i}{ext}"
-            output_files.append(part_file)
-
-            if verbose:
-                print(f"\n=== Encoding Part {i}/{len(segments)} ===")
-                print(f"  Time range: {start:.1f}s - {end:.1f}s")
-
-            cmd = build_ffmpeg_command(
-                input_file, part_file, config,
-                start_time=start if start > 0 else None,
-                end_time=end if end < duration else None
-            )
-            _run_ffmpeg(cmd, verbose)
-
     if verbose:
-        print(f"\nConversion complete:")
-        for f in output_files:
-            size_mb = f.stat().st_size / (1024 * 1024)
-            print(f"  {f} ({size_mb:.0f}MB)")
+        if media_info.chapters:
+            print(f"Found {len(media_info.chapters)} chapters")
+        print(f"Split points: {[f'{t:.1f}s' for t in split_points]}")
 
+    return _encode_segments(input_file, output_file, config, duration, split_points, verbose)
+
+
+def _encode_segments(
+    input_file: Path,
+    output_file: Path,
+    config: EncodingConfig,
+    duration: float,
+    split_points: list[float],
+    verbose: bool,
+) -> list[Path]:
+    """Encode multiple segments based on split points."""
+    base = output_file.stem
+    ext = output_file.suffix
+    output_files = []
+
+    segments = _create_segments(duration, split_points)
+    for i, (start, end) in enumerate(segments, 1):
+        part_file = output_file.parent / f"{base}_part{i}{ext}"
+        output_files.append(part_file)
+
+        if verbose:
+            print(f"\n=== Encoding Part {i}/{len(segments)} ===")
+            print(f"  Time range: {start:.1f}s - {end:.1f}s")
+
+        cmd = build_ffmpeg_command(
+            input_file, part_file, config,
+            start_time=start if start > 0 else None,
+            end_time=end if end < duration else None
+        )
+        _run_ffmpeg(cmd, verbose)
+
+    _print_completion(output_files, verbose)
     return output_files
+
+
+def _print_completion(output_files: list[Path], verbose: bool) -> None:
+    """Print completion summary."""
+    if not verbose:
+        return
+    print(f"\nConversion complete:")
+    for f in output_files:
+        size_mb = f.stat().st_size / (1024 * 1024)
+        print(f"  {f} ({size_mb:.0f}MB)")
 
 
 def _encode_vbr(
@@ -219,14 +246,20 @@ def _encode_vbr(
     media_info,
     verbose: bool,
 ) -> list[Path]:
-    """Encode with VBR, splitting after if file exceeds size limit."""
+    """Encode with VBR, splitting after based on split mode."""
+    if verbose:
+        print(f"Split mode: {config.split_mode}")
+
+    # Validate chapter mode upfront before encoding
+    if config.split_mode == SPLIT_MODE_CHAPTER and not media_info.chapters:
+        raise ValueError("Cannot split by chapter: no chapters found in source")
+
     # Encode the whole file first
     if verbose:
         print(f"\n=== Encoding ===")
     cmd = build_ffmpeg_command(input_file, output_file, config)
     _run_ffmpeg(cmd, verbose)
 
-    # Check actual file size
     actual_size_bytes = output_file.stat().st_size
     actual_size_mb = actual_size_bytes / (1024 * 1024)
     max_size_bytes = config.max_file_size_mb * 1024 * 1024
@@ -234,22 +267,25 @@ def _encode_vbr(
     if verbose:
         print(f"\nEncoded file size: {actual_size_mb:.0f}MB")
 
-    if actual_size_bytes <= max_size_bytes:
-        # File is under limit, we're done
+    # Chapter mode: always split into chapters
+    # Size/auto mode: only split if over limit
+    if config.split_mode != SPLIT_MODE_CHAPTER and actual_size_bytes <= max_size_bytes:
         if verbose:
             print(f"\nConversion complete:")
             print(f"  {output_file} ({actual_size_mb:.0f}MB)")
         return [output_file]
 
-    # File exceeds limit - need to split
     if verbose:
-        print(f"File exceeds {config.max_file_size_mb}MB limit, splitting...")
+        if config.split_mode == SPLIT_MODE_CHAPTER:
+            print(f"Splitting by chapter...")
+        else:
+            print(f"File exceeds {config.max_file_size_mb}MB limit, splitting...")
 
-    # Use the splitter with chapter info from the original source
     split_files = split_encoded_file(
         encoded_file=output_file,
-        source_file=input_file,  # Use source for chapter info
+        source_file=input_file,
         max_size_bytes=max_size_bytes,
+        split_mode=config.split_mode,
         verbose=verbose,
     )
 
@@ -258,12 +294,7 @@ def _encode_vbr(
         print(f"\nRemoving original file: {output_file}")
     output_file.unlink()
 
-    if verbose:
-        print(f"\nConversion complete:")
-        for f in split_files:
-            size_mb = f.stat().st_size / (1024 * 1024)
-            print(f"  {f} ({size_mb:.0f}MB)")
-
+    _print_completion(split_files, verbose)
     return split_files
 
 
