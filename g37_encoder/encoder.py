@@ -36,6 +36,7 @@ class EncodingConfig:
     max_file_size_mb: int = MAX_FILE_SIZE_MB
     cbr: bool = False  # Use constant bitrate (forces target bitrate)
     split_mode: str = SPLIT_MODE_AUTO  # chapter, size, or auto
+    audio_language: str = "eng"  # ISO 639-2 language code
 
 
 def build_ffmpeg_command(
@@ -48,10 +49,10 @@ def build_ffmpeg_command(
     """Build ffmpeg command for G37x compatible encoding."""
     cmd = ["ffmpeg", "-loglevel", "error", "-stats", "-i", str(input_file)]
 
-    # Stream mapping: select first video and English audio
+    # Stream mapping: select first video and specified audio language
     cmd.extend([
-        "-map", "0:v:0",              # First video stream
-        "-map", "0:a:m:language:eng", # English audio stream
+        "-map", "0:v:0",
+        "-map", f"0:a:m:language:{config.audio_language}",
     ])
 
     # Time range options
